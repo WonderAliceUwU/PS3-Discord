@@ -3,8 +3,10 @@
 # BeautifulSoup4
 # PyPresence
 # requests
-
+import os
 import socket
+from concurrent.futures import thread
+from threading import Thread, Event
 import requests
 from bs4 import BeautifulSoup
 from pypresence import Presence
@@ -14,6 +16,13 @@ from pypresence import InvalidID
 from urllib.request import urlopen
 from urllib.error import URLError
 import re
+from PyQt6.QtWidgets import (
+    QApplication,
+    QLabel,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 
 class PrepWork(object):
@@ -23,10 +32,10 @@ class PrepWork(object):
         self.splitIP = []
         self.options = {"A", "a", "Auto", "auto", "Automatic", "automatic"}
         self.ip = None
-        self.client_id = "780389261870235650"   # default client_id is my own
-        self.sleep_time = "35"                  # default sleep time is 35 seconds
-        self.temperatureBoolean = "True"        # default to show temperature is True
-        self.separateCovers = "False"           # default to have separate PSX and PS2 covers is False
+        self.client_id = "780389261870235650"  # default client_id is my own
+        self.sleep_time = "35"  # default sleep time is 35 seconds
+        self.temperatureBoolean = "True"  # default to show temperature is True
+        self.separateCovers = "False"  # default to have separate PSX and PS2 covers is False
         self.resetTimeOnGameChange = "True"
         self.RPC = None
 
@@ -42,24 +51,28 @@ class PrepWork(object):
                 self.ip = self.ip[1]  # make ip the address, not "IP: "
 
                 self.client_id = lines[1]  # second line in file (the client id)
-                self.client_id = self.client_id.split(": ")  # split so client_id[0] = "ID: ", client_id[1] = (whatever id is)
+                self.client_id = self.client_id.split(
+                    ": ")  # split so client_id[0] = "ID: ", client_id[1] = (whatever id is)
                 self.client_id = self.client_id[1]  # make client_id the string of numbers, not "ID: "
-                self.client_id = self.client_id.rstrip("\n")    # I have no idea why this particular line has a \n
+                self.client_id = self.client_id.rstrip("\n")  # I have no idea why this particular line has a \n
 
                 self.sleep_time = lines[2]  # third line in file (the sleep time)
-                self.sleep_time = self.sleep_time.split(": ")  # split so [0] = "Refresh time: ", [1] = (whatever value is)
+                self.sleep_time = self.sleep_time.split(
+                    ": ")  # split so [0] = "Refresh time: ", [1] = (whatever value is)
                 self.sleep_time = self.sleep_time[1]  # make sleep_time the number
                 self.sleep_time = int(self.sleep_time)
                 if self.sleep_time < 15:
                     self.sleep_time = 15
 
                 self.temperatureBoolean = lines[3]  # fourth line in file (the boolean of whether to show temps or not)
-                self.temperatureBoolean = self.temperatureBoolean.split(": ")  # split so [0] = "Show temperatures: ", [1] = (value)
+                self.temperatureBoolean = self.temperatureBoolean.split(
+                    ": ")  # split so [0] = "Show temperatures: ", [1] = (value)
                 self.temperatureBoolean = self.temperatureBoolean[1]  # make temperatureBoolean the value
                 self.temperatureBoolean = self.temperatureBoolean.rstrip("\n")  # remove newline from text
 
-                self.separateCovers = lines[4]      # fifth line in file (boolean of whether to show a shared cover or not)
-                self.separateCovers = self.separateCovers.split(": ")    # split so [0] = "Individual PS2&PSX covers: ", [1] = (value)
+                self.separateCovers = lines[4]  # fifth line in file (boolean of whether to show a shared cover or not)
+                self.separateCovers = self.separateCovers.split(
+                    ": ")  # split so [0] = "Individual PS2&PSX covers: ", [1] = (value)
                 self.separateCovers = self.separateCovers[1]
                 self.separateCovers = self.separateCovers.rstrip("\n")
 
@@ -119,10 +132,12 @@ class PrepWork(object):
 
             pageTitle = str(soup.find('title'))
             if 'wMAN' in pageTitle or 'webMAN' in pageTitle:
-                print("is wMAN")
+                # print("is wMAN")
+                webmanlabel.setText("Webman found: Yes")
                 self.saveIP(ip)
             else:
-                print("not wMAN, page reports: ", pageTitle, '\nIf you believe this is an error, please contact the developer.\n')
+                print("not wMAN, page reports: ", pageTitle,
+                      '\nIf you believe this is an error, please contact the developer.\n')
                 if self.mode in self.options:
                     self.findIP()
                 else:
@@ -155,100 +170,109 @@ class PrepWork(object):
 
     def findDiscord(self):
         self.RPC = Presence(self.client_id)
-        while True:         # use infinite loop instead of calling self to avoid maximum recursion depth
+        while True:  # use infinite loop instead of calling self to avoid maximum recursion depth
             try:
                 self.RPC.connect()
-                print("findDiscord():       found")
+                # print("findDiscord():       found")
+                discordlabel.setText("Discord found: Yes")
                 break
             except InvalidPipe:
-                print("findDiscord():       !not found!")
+                # print("findDiscord():       !not found!")
+                discordlabel.setText("Discord found: No!")
                 time.sleep(10)
 
 
 class GatherDetails(object):
     def __init__(self):
-        self.soup = None                # HTML of webmanMOD page
-        self.CPUandRSX = None           # Extracted temperatures
-        self.ps3Game = None             # Extracted ps3 game name
-        self.gameName = None            # Name of either mounted PSX/PS2 game, or name of open PS3 game
-        self.gameType = None            # string containing whether game is PSX, PS2, PS3, etc.
-        self.isPS3 = True               # boolean used to make PSX & PS2 games have only 1 cover
-        self.gameImage = None           # Name of validated gameName
-        self.titleID = None             # titleID of PS3 games (BLUS, NPUB, etc)
+        self.soup = None  # HTML of webmanMOD page
+        self.CPUandRSX = None  # Extracted temperatures
+        self.ps3Game = None  # Extracted ps3 game name
+        self.gameName = None  # Name of either mounted PSX/PS2 game, or name of open PS3 game
+        self.gameType = None  # string containing whether game is PSX, PS2, PS3, etc.
+        self.isPS3 = True  # boolean used to make PSX & PS2 games have only 1 cover
+        self.gameImage = None  # Name of validated gameName
+        self.titleID = None  # titleID of PS3 games (BLUS, NPUB, etc)
 
     def getPage(self):
         ip = setup.ip.rstrip("\n")  # remove newline from text
         quote_page = "http://" + ip + "/cpursx.ps3?/sman.ps3"
-        while True:         # use infinite loop instead of calling itself to avoid maximum recursion depth
+        while True:  # use infinite loop instead of calling itself to avoid maximum recursion depth
             try:
                 page = urlopen(quote_page)
-                print("getPage():       webman server found, continuing")
+                # print("getPage():       webman server found, continuing")
                 self.soup = BeautifulSoup(page, "html.parser")
                 break
             except URLError:
-                print("getPage():       webman server not found, waiting", setup.sleep_time, "seconds before retry")
-                if self.gameType != "mount.ps3/dev_hdd0/PS2ISO":            # handles webmanMOD going down when a PS2 game is open
+                # print("getPage():       webman server not found, waiting", setup.sleep_time, "seconds before retry")
+                webmanlabel.setText("Webman found: No, waiting " + setup.sleep_time + "s to retry")
+                if self.gameType != "mount.ps3/dev_hdd0/PS2ISO":  # handles webmanMOD going down when a PS2 game is open
                     setup.RPC.clear()
                 time.sleep(float(setup.sleep_time))
 
-    def getThermals(self):          # gets temperature from webmanMOD
+    def getThermals(self):  # gets temperature from webmanMOD
         HTMLCPUandRSX = str(self.soup.find("a", href="/cpursx.ps3?up"))
         CPUtemp = re.search('CPU(.+?)C', HTMLCPUandRSX).group(0)
         RSXtemp = re.search('RSX(.+?)C', HTMLCPUandRSX).group(0)
 
         self.CPUandRSX = CPUtemp + " | " + RSXtemp
-        print("getThermals():   ", self.CPUandRSX)
+        # print("getThermals():   ", self.CPUandRSX)
+        temperaturelabel.setText("Temperatures: " + self.CPUandRSX)
 
-    def getGameInfo(self):          # gets name of open/mounted game or homebrew from webmanMOD
+    def getGameInfo(self):  # gets name of open/mounted game or homebrew from webmanMOD
         # As Todd Howard said, "it just works". This really should be broken down into multiple functions
         # The following code will first check for if a PS3 game is mounted (ps3Game), which is displayed separately from other games in webmanMOD's HTML,
         # If found, that means a homebrew/PS3 game must be open, display that as the presence
         # If not found, move onto gameType, and check if a different type of game is mounted
         # If one is, display it as the presence
         # If one is not, assume the user is on the XMB and display that
-        self.titleID = str(self.soup.find("a", href=True, text=True, target="_blank"))      # find titleID of PS3 games
-        if self.titleID != "None":                                                         # will only detect PS3 games
-            self.titleID = re.search('>([^>]*)<', self.titleID).group(1)                    # extract titleID from surrounding HTML (used for gameImage and pypresence large_text)
+        self.titleID = str(self.soup.find("a", href=True, string=True, target="_blank"))  # find titleID of PS3 games
+        if self.titleID != "None":  # will only detect PS3 games
+            self.titleID = re.search('>([^>]*)<', self.titleID).group(
+                1)  # extract titleID from surrounding HTML (used for gameImage and pypresence large_text)
             self.isPS3 = True
-            self.ps3Game = str(self.soup.find("a", href=True, text=True, target="_blank").find_next_sibling())
+            self.ps3Game = str(self.soup.find("a", href=True, string=True, target="_blank").find_next_sibling())
             self.ps3Game = self.ps3Game.replace("\n", " ")
             self.ps3Game = self.ps3Game.replace("&amp;", "&")
             self.ps3Game = re.search('\?q=([^>]*)\">', self.ps3Game)
             # print(self.ps3Game)           # DEBUGGING
             self.ps3Game = self.ps3Game.group(1)
-            print("getGameInfo():   ", self.gameName)
+            # print("getGameInfo():   ", self.gameName)
+            gameLabel.setText(self.gameName)
             self.gameName = self.ps3Game
-        else:                                           # If no PS3 game is open, assume user is on the XMB
+        else:  # If no PS3 game is open, assume user is on the XMB
             self.gameName = "XMB"
-            print("getGameInfo():   ", self.gameName)
-
+            # print("getGameInfo():   ", self.gameName)
+            gameLabel.setText(self.gameName)
             self.gameType = str(self.soup.find('a', href=re.compile('mount(.+?)+')))
-            self.gameType = re.search('mount.ps3/dev_hdd0/(?:GAMES|PS2ISO|PSXISO|PSPISO|PS3ISO)', self.gameType)  # honestly could probably remove "GAMES" and "PS3ISO", but it woks fine the way it is
+            self.gameType = re.search('mount.ps3/dev_hdd0/(?:GAMES|PS2ISO|PSXISO|PSPISO|PS3ISO)',
+                                      self.gameType)  # honestly could probably remove "GAMES" and "PS3ISO", but its woks fine the way it is
             if self.gameType is not None:
                 try:
                     self.gameType = self.gameType.group(0)
                 except AttributeError:
                     print("[Timing Error]")
-                    exit(1)             # this should never be reached in the release of the script, but is kept for my own sanity
+                    exit(1)  # this should never be reached in the release of the script, but is kept for my own sanity
                 # some game must be mounted if the code reaches here
                 if self.gameType != "mount.ps3/dev_hdd0/GAMES" and self.gameType != "mount.ps3/dev_hdd0/PS3ISO":  # ensure a PS3 game is not mounted
                     self.isPS3 = False
                     otherGame = str(self.soup.find("a", href=re.compile('mount(.+?)+')))
-                    otherGame = re.search('>(.+?)<', otherGame)         # name of game/file mounted
+                    otherGame = re.search('>(.+?)<', otherGame)  # name of game/file mounted
                     if otherGame is not None:
-                        otherGame = otherGame.group(1)          # excludes ">" "<"
-                        self.gameName = otherGame               # set presence variable to game/file mounted
-                        cleanUp = ["\n", "(USA)", ".bin", ".BIN", ".iso", ".ISO", ".pkg", ".PKG", "(EUR)", "(JAP)", "(usa)", "(eur)","(jap)"]   # I don't know how many of these will actually
+                        otherGame = otherGame.group(1)  # excludes ">" "<"
+                        self.gameName = otherGame  # set presence variable to game/file mounted
+                        cleanUp = ["\n", "(USA)", ".bin", ".BIN", ".iso", ".ISO", ".pkg", ".PKG", "(EUR)", "(JAP)",
+                                   "(usa)", "(eur)", "(jap)"]  # I don't know how many of these will actually
                         # ever be used, but it should handle a majority of games people play?
                         for i in range(len(cleanUp)):
                             self.gameName = self.gameName.replace(cleanUp[i], "")
                         print("getGameInfo():   ", self.gameName)
 
-    def validate(self):         # validates the game's name for Discord's art asset naming conventions (allows images to display)
-        if self.isPS3 is False:         # PS2 and PSX games do not have a titleID in webman, so use the name of game
+    def validate(
+            self):  # validates the game's name for Discord's art asset naming conventions (allows images to display)
+        if self.isPS3 is False:  # PS2 and PSX games do not have a titleID in webman, so use the name of game
             self.gameImage = self.gameName
         else:
-            self.gameImage = self.titleID   # PS3 games should use the titleID as the image name so more languages are supported
+            self.gameImage = self.titleID  # PS3's games should use the titleID as the image name so more languages are supported
 
         if self.isPS3 is False and setup.separateCovers == "False" or self.isPS3 is False and setup.separateCovers == "false":
             if self.gameType == "mount.ps3/dev_hdd0/PSXISO":
@@ -260,44 +284,111 @@ class GatherDetails(object):
 
         self.gameImage = self.gameImage.lower()
         # Following lines needed only for PS1 and PS2 games as PS3 uses titleID
-        self.gameImage = self.gameImage.replace(" ", "_")                   # spaces (" ") are not allowed in image name
-        self.gameImage = self.gameImage.replace("&amp;", "")               # "amp" would not be removed without this
-        self.gameImage = re.sub("[\W]+", "", self.gameImage)                # removes any non-letter, digit, or underscore
-        self.gameImage = self.gameImage[:32]                                # max 32 characters
+        self.gameImage = self.gameImage.replace(" ", "_")  # spaces (" ") are not allowed in image name
+        self.gameImage = self.gameImage.replace("&amp;", "")  # "amp" would not be removed without this
+        self.gameImage = re.sub("[\W]+", "", self.gameImage)  # removes any non-letter, digit, or underscore
+        self.gameImage = self.gameImage[:32]  # max 32 characters
 
-        print("validate():      ", self.gameImage)
+        # print("validate():      ", self.gameImage)
+        codeLabel.setText("Game code: " + self.gameImage)
 
 
 setup = PrepWork()
-setup.getParams()  # goes through all defined functions in PrepWork(), minus findDiscord()
-setup.findDiscord()
-
-details = GatherDetails()
-previousGameTitle = ""
-timer = time.time()
 
 
-while True:
-    details.getPage()
-    details.getGameInfo()
-    if setup.temperatureBoolean == "True" or setup.temperatureBoolean == "true":
-        if details.isPS3 is False:
-            details.CPUandRSX = "　　"        # do not display temperature regardless of user preference as it is not correct when playing PS2 games
+def connect():
+    setup.getParams()  # goes through all defined functions in PrepWork(), minus findDiscord()
+    setup.findDiscord()
+    thread.start()
+
+
+def startpresence():
+    details = GatherDetails()
+    previousGameTitle = ""
+    timer = time.time()
+
+    while True:
+        if not event.is_set():
+            setup.RPC.clear()
+            event.wait()
+        details.getPage()
+        details.getGameInfo()
+        if details.gameName != "XMB":
+            if setup.temperatureBoolean == "True" or setup.temperatureBoolean == "true":
+                if details.isPS3 is False:
+                    details.CPUandRSX = "　　"  # do not display temperature regardless of user preference as it is not correct when playing PS2 games
+                else:
+                    details.getThermals()
+            if details.gameName != previousGameTitle:
+                previousGameTitle = details.gameName
+                details.validate()  # validate only needs to run if the game/app has been changed
+                if setup.resetTimeOnGameChange == "True" or setup.resetTimeOnGameChange == "true":
+                    timer = time.time()
+            try:
+                setup.RPC.update(details=details.gameName, state=details.CPUandRSX, large_image=details.gameImage,
+                                 large_text=details.titleID, start=timer)
+            except(InvalidPipe, InvalidID):
+                setup.findDiscord()
         else:
-            details.getThermals()
-    if details.gameName != previousGameTitle:
-        previousGameTitle = details.gameName
-        details.validate()                  # validate only needs to run if the game/app has been changed
-        if setup.resetTimeOnGameChange == "True" or setup.resetTimeOnGameChange == "true":
-            timer = time.time()
-    else:
-        print("prev validate(): ", details.gameImage)
-    try:
-        setup.RPC.update(details=details.gameName, state=details.CPUandRSX, large_image=details.gameImage, large_text=details.titleID, start=timer)
-    except(InvalidPipe, InvalidID):
-        setup.findDiscord()
-    time.sleep(int(setup.sleep_time))
-    print("\n")
+            setup.RPC.clear()
+        try:
+            event.wait(int(setup.sleep_time))
+        except KeyboardInterrupt:
+            print("Exited from program")
+            quit()
 
-# NOTES:
-# script will only read external config file once, any changes made won't be reflected until script is restarted
+
+def stopthread():
+    event.clear()
+    presenceLabel.setText("Status: Paused")
+    stopbutton.setEnabled(False)
+    startbutton.setEnabled(True)
+
+
+def starthread():
+    event.set()
+    presenceLabel.setText("Status: Enabled")
+    startbutton.setEnabled(False)
+    stopbutton.setEnabled(True)
+
+
+app = QApplication([])
+window = QWidget()
+window.setWindowTitle("PS3 Presence")
+window.setGeometry(500, 200, 300, 300)
+layout = QVBoxLayout()
+
+event = Event()
+thread = Thread(target=startpresence)
+
+gameLabel = QLabel("No game")
+codeLabel = QLabel("Game code: ")
+presenceLabel = QLabel("Status: ")
+webmanlabel = QLabel("Webman found: ")
+discordlabel = QLabel("Discord found: ")
+temperaturelabel = QLabel("Temperatures: ")
+
+startbutton = QPushButton("Start")
+startbutton.clicked.connect(starthread)
+
+stopbutton = QPushButton("Stop")
+stopbutton.clicked.connect(stopthread)
+
+connectButton = QPushButton("Connect")
+connectButton.clicked.connect(connect)
+
+layout.addWidget(webmanlabel)
+layout.addWidget(discordlabel)
+layout.addWidget(presenceLabel)
+layout.addWidget(connectButton)
+layout.addWidget(startbutton)
+layout.addWidget(stopbutton)
+layout.addWidget(gameLabel)
+layout.addWidget(codeLabel)
+layout.addWidget(temperaturelabel)
+msgLabel = QLabel("")
+layout.addWidget(msgLabel)
+window.setLayout(layout)
+
+window.show()
+os._exit(app.exec())
