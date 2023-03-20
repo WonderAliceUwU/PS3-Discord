@@ -1,6 +1,0 @@
-IP: 192.168.0.22
-ID: 1017811291676622908
-Refresh time(seconds): 15
-Show temperatures: True
-Individual PS2&PSX covers: False
-Reset time elapsed on game change: True
