@@ -5,6 +5,7 @@
 # requests
 import os
 import socket
+from charset_normalizer import md__mypyc
 from concurrent.futures import thread
 from threading import Thread, Event
 import requests
@@ -21,7 +22,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QPushButton,
     QVBoxLayout,
-    QWidget,
+    QWidget, QLineEdit,
 )
 
 
@@ -89,36 +90,7 @@ class PrepWork(object):
             self.getIP()
 
     def getIP(self):
-        print("This program can find the address of your PS3 automatically, however this process takes a while,\n"
-              "would you prefer to enter the IP address manually, or start an automatic search?\n")
-        self.mode = input("Please enter either manual (M) or Automatic (A): ")
-        if self.mode in self.options:
-            print("Automatic search begins, please wait.")
-            tempSock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            tempSock.connect(("8.8.8.8", 80))
-            PCip = tempSock.getsockname()[0]
-            tempSock.close()
-            self.splitIP = PCip.split(".")
-            print(self.splitIP[0] + "." + self.splitIP[1] + "." + self.splitIP[2] + ".___")
-            self.findIP()
-        else:
-            self.ip = input("Enter PS3's IP address: ")
-            self.isWebman(self.ip)
-
-    def findIP(self):
-        self.octetFour += 1
-        if self.octetFour < 254:
-            self.ip = self.splitIP[0] + "." + self.splitIP[1] + "." + self.splitIP[2] + "." + str(self.octetFour)
-            try:
-                requests.get("http://" + self.ip)
-                print("\nHost found at: ", self.ip, end=" ")
-                self.isWebman(self.ip)
-            except requests.ConnectionError:
-                print("(", self.octetFour, ")", end="")
-                self.findIP()
-        else:  # called if all requests in range fail to find wMAN server
-            print("Automatic search process failed")
-            self.getIP()
+        self.isWebman(ipbox.text())
 
     def isWebman(self, ip):  # is only called if a web server is on the address
         try:  # request needed to ensure server doesn't error out
@@ -133,19 +105,12 @@ class PrepWork(object):
             pageTitle = str(soup.find('title'))
             if 'wMAN' in pageTitle or 'webMAN' in pageTitle:
                 # print("is wMAN")
-                webmanlabel.setText("Webman found: Yes")
                 self.saveIP(ip)
+                webmanlabel.setText("\nWebman found: Yes")
             else:
-                print("not wMAN, page reports: ", pageTitle,
-                      '\nIf you believe this is an error, please contact the developer.\n')
-                if self.mode in self.options:
-                    self.findIP()
-                else:
-                    self.getIP()
+                webmanlabel.setText("\nWebman found: No")
         except requests.ConnectionError as e:
-            print("Some error occurred on input address, did your PS3's IP address change?\n")
-            print(e, "\n")
-            self.getIP()
+            webmanlabel.setText("\nWebman found: No")
 
     def saveIP(self, ip):
         file = open("PS3RPDconfig.txt", "w+")  # w+ creates the file if it is missing
@@ -204,11 +169,10 @@ class GatherDetails(object):
                 break
             except URLError:
                 # print("getPage():       webman server not found, waiting", setup.sleep_time, "seconds before retry")
-                webmanlabel.setText("Webman found: No, waiting " + setup.sleep_time + "s to retry")
+                webmanlabel.setText("\nWebman found: No, waiting " + setup.sleep_time + "s to retry")
                 if self.gameType != "mount.ps3/dev_hdd0/PS2ISO":  # handles webmanMOD going down when a PS2 game is open
                     setup.RPC.clear()
-                time.sleep(float(setup.sleep_time))
-
+                time.sleep(int(setup.sleep_time))
     def getThermals(self):  # gets temperature from webmanMOD
         HTMLCPUandRSX = str(self.soup.find("a", href="/cpursx.ps3?up"))
         CPUtemp = re.search('CPU(.+?)C', HTMLCPUandRSX).group(0)
@@ -237,12 +201,12 @@ class GatherDetails(object):
             # print(self.ps3Game)           # DEBUGGING
             self.ps3Game = self.ps3Game.group(1)
             # print("getGameInfo():   ", self.gameName)
-            gameLabel.setText(self.gameName)
+            gameLabel.setText("\n" + self.gameName)
             self.gameName = self.ps3Game
         else:  # If no PS3 game is open, assume user is on the XMB
             self.gameName = "XMB"
             # print("getGameInfo():   ", self.gameName)
-            gameLabel.setText(self.gameName)
+            gameLabel.setText("\n" + self.gameName)
             self.gameType = str(self.soup.find('a', href=re.compile('mount(.+?)+')))
             self.gameType = re.search('mount.ps3/dev_hdd0/(?:GAMES|PS2ISO|PSXISO|PSPISO|PS3ISO)',
                                       self.gameType)  # honestly could probably remove "GAMES" and "PS3ISO", but its woks fine the way it is
@@ -292,14 +256,16 @@ class GatherDetails(object):
         # print("validate():      ", self.gameImage)
         codeLabel.setText("Game code: " + self.gameImage)
 
-
 setup = PrepWork()
 
 
 def connect():
-    setup.getParams()  # goes through all defined functions in PrepWork(), minus findDiscord()
+    setup.getParams()
     setup.findDiscord()
-    thread.start()
+    if webmanlabel.text() == "\nWebman found: Yes":
+        thread.start()
+        connectButton.setEnabled(False)
+        presenceLabel.setText("Status: Connected\n")
 
 
 def startpresence():
@@ -340,14 +306,14 @@ def startpresence():
 
 def stopthread():
     event.clear()
-    presenceLabel.setText("Status: Paused")
+    presenceLabel.setText("Status: Paused\n")
     stopbutton.setEnabled(False)
     startbutton.setEnabled(True)
 
 
 def starthread():
     event.set()
-    presenceLabel.setText("Status: Enabled")
+    presenceLabel.setText("Status: Enabled\n")
     startbutton.setEnabled(False)
     stopbutton.setEnabled(True)
 
@@ -361,12 +327,14 @@ layout = QVBoxLayout()
 event = Event()
 thread = Thread(target=startpresence)
 
-gameLabel = QLabel("No game")
+iplabel = QLabel("Enter PS3 IP Address")
+hintlabel = QLabel("Go to System -> Information -> IP Address")
+gameLabel = QLabel("\nNo game")
 codeLabel = QLabel("Game code: ")
-presenceLabel = QLabel("Status: ")
-webmanlabel = QLabel("Webman found: ")
+presenceLabel = QLabel("Status: \n")
+webmanlabel = QLabel("\nWebman found: ")
 discordlabel = QLabel("Discord found: ")
-temperaturelabel = QLabel("Temperatures: ")
+temperaturelabel = QLabel("Temperatures:")
 
 startbutton = QPushButton("Start")
 startbutton.clicked.connect(starthread)
@@ -377,6 +345,10 @@ stopbutton.clicked.connect(stopthread)
 connectButton = QPushButton("Connect")
 connectButton.clicked.connect(connect)
 
+ipbox = QLineEdit()
+layout.addWidget(iplabel)
+layout.addWidget(hintlabel)
+layout.addWidget(ipbox)
 layout.addWidget(webmanlabel)
 layout.addWidget(discordlabel)
 layout.addWidget(presenceLabel)
@@ -386,9 +358,25 @@ layout.addWidget(stopbutton)
 layout.addWidget(gameLabel)
 layout.addWidget(codeLabel)
 layout.addWidget(temperaturelabel)
-msgLabel = QLabel("")
-layout.addWidget(msgLabel)
 window.setLayout(layout)
 
 window.show()
+
+try:
+    file = open("PS3RPDconfig.txt", "r")
+    lines = file.readlines()
+    # print(lines)  # DEBUGGING
+    file.close()
+    try:
+        ip = lines[0]  # first line in file (the IP address)
+        ip = ip.split(": ")  # split so ip[0] = "IP: ", ip[1] = (whatever the PS3's ip is)
+        ip = ip[1]  # make ip the address, not "IP: "
+        ipbox.setText(ip)
+    except IndexError:
+        print("ERROR WITH CONFIG FILE, PLEASE DELETE IT")
+        exit(0)
+except FileNotFoundError:
+    print("config file not found\n")
+
+
 os._exit(app.exec())
