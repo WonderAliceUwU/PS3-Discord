@@ -32,7 +32,7 @@ class PrepWork(object):
         self.splitIP = []
         self.options = {"A", "a", "Auto", "auto", "Automatic", "automatic"}
         self.ip = None
-        self.client_id = "780389261870235650"  # default client_id is my own
+        self.client_id = "1017811291676622908"  # default client_id is my own
         self.sleep_time = "35"  # default sleep time is 35 seconds
         self.temperatureBoolean = "True"  # default to show temperature is True
         self.separateCovers = "False"  # default to have separate PSX and PS2 covers is False
